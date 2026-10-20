@@ -3,16 +3,27 @@ import pg from "pg";
 
 const { Pool } = pg;
 
+const poolConfig = process.env.DATABASE_URL?.trim()
+  ? {
+      connectionString: process.env.DATABASE_URL.trim(),
+      ...(process.env.NODE_ENV === "production"
+        ? { ssl: { rejectUnauthorized: true } }
+        : {}),
+    }
+  : {
+      host: process.env.DB_HOST || "127.0.0.1",
+      port: Number(process.env.DB_PORT || 5432),
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      ssl: false,
+    };
+
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT || 5432),
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  ssl:
-    process.env.NODE_ENV === "production"
-      ? { rejectUnauthorized: true }
-      : false,
+  ...poolConfig,
+  max: 2,
+  connectionTimeoutMillis: 10000,
+  application_name: "autohub-database-check",
 });
 
 async function checkDatabase() {
@@ -102,11 +113,11 @@ async function checkDatabase() {
   console.log("Database check completed.");
 }
 
-checkDatabase()
-  .catch((error) => {
-    console.error("Database check failed:", error.message);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await pool.end();
-  });
+try {
+  await checkDatabase();
+} catch (error) {
+  console.error("Database check failed:", error.message);
+  process.exitCode = 1;
+} finally {
+  await pool.end();
+}
