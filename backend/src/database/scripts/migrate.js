@@ -9,16 +9,27 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const poolConfig = process.env.DATABASE_URL?.trim()
+  ? {
+      connectionString: process.env.DATABASE_URL.trim(),
+      ...(process.env.NODE_ENV === "production"
+        ? { ssl: { rejectUnauthorized: true } }
+        : {}),
+    }
+  : {
+      host: process.env.DB_HOST || "127.0.0.1",
+      port: Number(process.env.DB_PORT || 5432),
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      ssl: false,
+    };
+
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT || 5432),
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  ssl:
-    process.env.NODE_ENV === "production"
-      ? { rejectUnauthorized: true }
-      : false,
+  ...poolConfig,
+  max: 2,
+  connectionTimeoutMillis: 10000,
+  application_name: "autohub-migrations",
 });
 
 const MIGRATIONS_DIR = path.join(__dirname, "../migrations");
@@ -40,13 +51,24 @@ async function tableExists(client, tableName) {
 }
 
 async function migrate() {
-  if (!process.env.DB_NAME) {
-    throw new Error("DB_NAME is required.");
+  const usingDatabaseUrl = Boolean(process.env.DATABASE_URL?.trim());
+
+  if (
+    !usingDatabaseUrl &&
+    (!process.env.DB_NAME || !process.env.DB_USER || !process.env.DB_PASSWORD)
+  ) {
+    throw new Error(
+      "Set DATABASE_URL or provide DB_NAME, DB_USER, and DB_PASSWORD.",
+    );
   }
 
+  // Production migrations must be deliberately run from a trusted
+  // deployment workflow, not accidentally during server startup.
+  // Running this script manually is allowed only outside production mode.
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "This development migration script is disabled in production.",
+      "Migration script is disabled when NODE_ENV=production. " +
+        "Run migrations manually from a trusted environment with NODE_ENV=development.",
     );
   }
 
@@ -60,14 +82,22 @@ async function migrate() {
     .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 
   if (files.length === 0) {
-    console.log("No migration files found.");
-    return;
+    throw new Error(`No migration files found in ${MIGRATIONS_DIR}`);
   }
 
   const client = await pool.connect();
   let lockAcquired = false;
 
   try {
+    const connectionInfo = await client.query(`
+      SELECT current_database() AS database_name,
+             current_user AS database_user,
+             inet_server_addr()::text AS server_address
+    `);
+
+    console.log("Connected database:");
+    console.table(connectionInfo.rows);
+
     await client.query("SELECT pg_advisory_lock($1)", [741852963]);
     lockAcquired = true;
 
@@ -123,7 +153,7 @@ async function migrate() {
         await client.query(sql);
 
         await client.query(
-          `INSERT INTO public.schema_migrations (filename) VALUES ($1)`,
+          "INSERT INTO public.schema_migrations (filename) VALUES ($1)",
           [file],
         );
 
