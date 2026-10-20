@@ -1,6 +1,9 @@
 import express from "express";
 import { corsMiddleware } from "./config/cors.js";
 import { logger } from "./config/logger.js";
+import { notFound } from "./middleware/notFound.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { generalRateLimiter } from "./middleware/rateLimiter.js";
 
 export const app = express();
 
@@ -26,6 +29,9 @@ app.use((req, res, next) => {
   next();
 });
 
+// General API rate limiter.
+app.use("/api", generalRateLimiter);
+
 // Basic application health check.
 app.get("/api/health", (_req, res) => {
   res.status(200).json({
@@ -35,51 +41,57 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// Unknown route handler.
+app.use(notFound);
+
+// Central error handler.
+app.use(errorHandler);
+
 // Register existing API routes here when ready.
 // Example:
 // app.use("/api/auth", authRoutes);
 
-// Unknown route handler.
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-  });
-});
+// // Unknown route handler.
+// app.use((req, res) => {
+//   res.status(404).json({
+//     success: false,
+//     message: "Route not found",
+//   });
+// });
 
-// Central error handler.
-app.use((error, req, res, next) => {
-  if (res.headersSent) {
-    return next(error);
-  }
+// // Central error handler.
+// app.use((error, req, res, next) => {
+//   if (res.headersSent) {
+//     return next(error);
+//   }
 
-  const statusCode =
-    error.message === "Origin not allowed by CORS"
-      ? 403
-      : error.status === 400 && error.type === "entity.parse.failed"
-        ? 400
-        : Number.isInteger(error.statusCode) &&
-            error.statusCode >= 400 &&
-            error.statusCode < 500
-          ? error.statusCode
-          : 500;
+//   const statusCode =
+//     error.message === "Origin not allowed by CORS"
+//       ? 403
+//       : error.status === 400 && error.type === "entity.parse.failed"
+//         ? 400
+//         : Number.isInteger(error.statusCode) &&
+//             error.statusCode >= 400 &&
+//             error.statusCode < 500
+//           ? error.statusCode
+//           : 500;
 
-  logger.error("Request failed", {
-    method: req.method,
-    path: req.path,
-    statusCode,
-    message: error.message,
-  });
+//   logger.error("Request failed", {
+//     method: req.method,
+//     path: req.path,
+//     statusCode,
+//     message: error.message,
+//   });
 
-  res.status(statusCode).json({
-    success: false,
-    message:
-      statusCode >= 500
-        ? "Internal server error"
-        : statusCode === 403
-          ? "Origin not allowed"
-          : statusCode === 400
-            ? "Invalid request body"
-            : error.message,
-  });
-});
+//   res.status(statusCode).json({
+//     success: false,
+//     message:
+//       statusCode >= 500
+//         ? "Internal server error"
+//         : statusCode === 403
+//           ? "Origin not allowed"
+//           : statusCode === 400
+//             ? "Invalid request body"
+//             : error.message,
+//   });
+// });
