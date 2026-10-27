@@ -14,6 +14,8 @@ import returnRoutes from "./returns.routes.js";
 import reviewRoutes from "./review.routes.js";
 import shippingRoutes from "./shipping.routes.js";
 import wishlistRoutes from "./wishlist.routes.js";
+import cloudinaryRoutes from "./cloudinary.routes.js";
+
 
 const router = Router();
 
@@ -53,5 +55,13 @@ router.use("/inventory", inventoryRoutes);
  * =========================================================
  */
 router.use("/webhooks", webhookRoutes);
+
+
+/**
+ * =========================================================
+ *  CLOUDINARY INTEGRATION
+ * =========================================================
+ */
+router.use("/cloudinary", cloudinaryRoutes);
 
 export default router;
