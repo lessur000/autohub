@@ -4,10 +4,15 @@ import { logger } from "./config/logger.js";
 import { notFound } from "./middleware/notFound.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { generalRateLimiter } from "./middleware/rateLimiter.js";
+import apiRoutes from "./routes/index.js";
 
 export const app = express();
 
 app.disable("x-powered-by");
+
+// Trust one proxy hop, if exactly one trusted proxy
+// sits in front of this Express application.
+app.set("trust proxy", 1);
 
 app.use(corsMiddleware);
 app.use(express.json({ limit: "1mb" }));
@@ -41,10 +46,15 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-// Unknown route handler.
-app.use(notFound);
+// Register API routes.
+app.use("/api", apiRoutes);
 
-// Central error handler.
+/**
+ * =========================================================
+ *  NOT FOUND & ERROR HANDLERS
+ * =========================================================
+ */
+app.use(notFound);
 app.use(errorHandler);
 
 // Register existing API routes here when ready.
