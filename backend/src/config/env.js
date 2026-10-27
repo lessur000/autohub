@@ -27,6 +27,7 @@ const envSchema = z
     // FRONTEND / CORS
     // =====================================================
     FRONTEND_URL: z.string().url().default("http://localhost:5173"),
+
     ADMIN_FRONTEND_URL: z.string().url().default("http://localhost:5174"),
 
     FRONTEND_URLS: z
@@ -59,6 +60,22 @@ const envSchema = z
     XENDIT_SECRET_KEY: z.string().default(""),
     XENDIT_WEBHOOK_TOKEN: z.string().default(""),
 
+    XENDIT_API_URL: z.string().url().default("https://api.xendit.co"),
+
+    XENDIT_SUCCESS_RETURN_URL: z
+      .string()
+      .url()
+      .default("http://localhost:5173/payment/success"),
+
+    XENDIT_FAILURE_RETURN_URL: z
+      .string()
+      .url()
+      .default("http://localhost:5173/payment/failed"),
+    XENDIT_CANCEL_RETURN_URL: z
+      .string()
+      .url()
+      .default("http://localhost:5173/payment/cancelled"),
+
     // =====================================================
     // CLOUDINARY
     // =====================================================
@@ -72,13 +89,16 @@ const envSchema = z
     EMAIL_PROVIDER: z.enum(["mailtrap", "resend"]).default("mailtrap"),
 
     EMAIL_FROM_NAME: z.string().default("AutoHub"),
+
     EMAIL_FROM_EMAIL: z.string().email().default("no-reply@example.com"),
 
     // =====================================================
     // MAILTRAP
     // =====================================================
     MAILTRAP_HOST: z.string().default("sandbox.smtp.mailtrap.io"),
+
     MAILTRAP_PORT: z.coerce.number().int().min(1).max(65535).default(2525),
+
     MAILTRAP_USER: z.string().default(""),
     MAILTRAP_PASS: z.string().default(""),
 
@@ -88,7 +108,9 @@ const envSchema = z
     RESEND_API_KEY: z.string().default(""),
   })
   .superRefine((data, ctx) => {
-    // Database configuration.
+    // =====================================================
+    // DATABASE CONFIGURATION
+    // =====================================================
     if (data.NODE_ENV === "production" && !data.DATABASE_URL) {
       ctx.addIssue({
         code: "custom",
@@ -129,7 +151,9 @@ const envSchema = z
       }
     }
 
-    // Validate configured frontend origins.
+    // =====================================================
+    // FRONTEND ORIGIN VALIDATION
+    // =====================================================
     const origins = [
       data.FRONTEND_URL,
       data.ADMIN_FRONTEND_URL,
@@ -156,7 +180,24 @@ const envSchema = z
       }
     }
 
-    // Production email configuration.
+    // =====================================================
+    // XENDIT PRODUCTION RETURN URL VALIDATION
+    // =====================================================
+    if (
+      data.NODE_ENV === "production" &&
+      (data.XENDIT_SUCCESS_RETURN_URL.includes("localhost") ||
+        data.XENDIT_FAILURE_RETURN_URL.includes("localhost"))
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["XENDIT_SUCCESS_RETURN_URL"],
+        message: "Production Xendit return URLs must not use localhost.",
+      });
+    }
+
+    // =====================================================
+    // PRODUCTION EMAIL CONFIGURATION
+    // =====================================================
     if (
       data.NODE_ENV === "production" &&
       data.EMAIL_PROVIDER === "resend" &&
@@ -170,7 +211,9 @@ const envSchema = z
       });
     }
 
-    // Local Mailtrap configuration.
+    // =====================================================
+    // MAILTRAP CONFIGURATION
+    // =====================================================
     if (
       data.EMAIL_PROVIDER === "mailtrap" &&
       (data.MAILTRAP_USER || data.MAILTRAP_PASS) &&
@@ -185,6 +228,9 @@ const envSchema = z
     }
   });
 
+// =========================================================
+// VALIDATE ENVIRONMENT VARIABLES
+// =========================================================
 const result = envSchema.safeParse(process.env);
 
 if (!result.success) {
@@ -199,8 +245,14 @@ if (!result.success) {
 
 const parsed = result.data;
 
+// =========================================================
+// NORMALIZE FRONTEND ORIGINS
+// =========================================================
 const normalizeOrigin = (value) => value.trim().replace(/\/+$/, "");
 
+// =========================================================
+// EXPORT ENVIRONMENT CONFIGURATION
+// =========================================================
 export const env = Object.freeze({
   ...parsed,
 
