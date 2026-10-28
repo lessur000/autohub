@@ -11,6 +11,8 @@ import {
   PH_PAYMENT_CHANNELS,
 } from "../../integrations/xendit/xendit.payments.js";
 
+import { sendPaymentConfirmationEmail } from "../../integrations/email/payment-confirmation.email.js";
+
 /**
  * =========================================================
  * CREATE PAYMENT REQUEST
@@ -259,7 +261,6 @@ export const verifyWebhookToken = (token) => {
  * =========================================================
  */
 
-
 export const processPaymentCallback = async (payload) => {
   const normalized = normalizeXenditWebhook(payload);
 
@@ -274,7 +275,6 @@ export const processPaymentCallback = async (payload) => {
   const providerPaymentId = data.payment_id ?? null;
   const referenceId = data.reference_id ?? null;
 
-  // Current Xendit v3 event names.
   const supportedEvents = [
     "payment.capture",
     "payment.failure",
@@ -290,16 +290,19 @@ export const processPaymentCallback = async (payload) => {
     };
   }
 
-  // Match against the IDs saved when creating the payment request.
   let payment = null;
 
   if (requestId) {
-    payment =
-      await paymentRepository.findPaymentByProviderRequestId(requestId);
+    payment = await paymentRepository.findPaymentByProviderRequestId(requestId);
   }
 
   if (!payment && referenceId) {
     payment = await paymentRepository.findPaymentByReference(referenceId);
+  }
+
+  if (!payment && providerPaymentId) {
+    payment =
+      await paymentRepository.findPaymentByProviderPaymentId(providerPaymentId);
   }
 
   if (!payment) {
@@ -313,7 +316,6 @@ export const processPaymentCallback = async (payload) => {
     throw httpError(404, "Matching payment was not found.");
   }
 
-  // Verify amount and currency before changing payment status.
   if (
     data.request_amount !== undefined &&
     Number(data.request_amount) !== Number(payment.amount)
@@ -335,20 +337,14 @@ export const processPaymentCallback = async (payload) => {
 
   if (event === "payment.capture" && providerStatus === "SUCCEEDED") {
     newStatus = "paid";
-  } else if (
-    event === "payment.failure" ||
-    providerStatus === "FAILED"
-  ) {
+  } else if (event === "payment.failure" || providerStatus === "FAILED") {
     newStatus = "failed";
   } else if (
     event === "payment_request.expiry" ||
     providerStatus === "EXPIRED"
   ) {
     newStatus = "expired";
-  } else if (
-    providerStatus === "CANCELED" ||
-    providerStatus === "CANCELLED"
-  ) {
+  } else if (providerStatus === "CANCELED" || providerStatus === "CANCELLED") {
     newStatus = "cancelled";
   } else {
     return {
@@ -361,16 +357,14 @@ export const processPaymentCallback = async (payload) => {
   }
 
   const providerEventId =
-    providerPaymentId ??
-    requestId ??
-    data.id ??
-    referenceId;
+    providerPaymentId ?? requestId ?? data.id ?? referenceId;
 
   if (!providerEventId) {
     throw httpError(400, "Xendit webhook is missing payment identifiers.");
   }
 
-  return paymentRepository.applyPaymentWebhook({
+  // The repository commits the payment/order update before returning.
+  const result = await paymentRepository.applyPaymentWebhook({
     paymentId: payment.id,
     providerPaymentRequestId: requestId,
     providerPaymentId,
@@ -381,8 +375,57 @@ export const processPaymentCallback = async (payload) => {
     eventType: event,
     payload,
   });
-};
 
+  // Send email only for a newly processed successful payment.
+  // Duplicate events and ignored status transitions must not resend it.
+  if (
+    newStatus === "paid" &&
+    result.status === "paid" &&
+    !result.duplicate &&
+    !result.ignored &&
+    result.paymentId
+  ) {
+    try {
+      const details = await paymentRepository.findPaymentConfirmationDetails(
+        result.paymentId,
+      );
+
+      if (
+        !details ||
+        details.payment_status !== "paid" ||
+        details.order_status !== "confirmed"
+      ) {
+        throw new Error("Confirmed payment/order details are unavailable.");
+      }
+
+      if (!details.email) {
+        throw new Error("Customer email is unavailable.");
+      }
+
+      await sendPaymentConfirmationEmail({
+        email: details.email,
+        customerName: details.full_name || "Customer",
+        orderNumber: details.order_number,
+        amount: Number(details.amount),
+        currency: details.currency || "PHP",
+        paymentMethod: details.payment_method || "Xendit",
+        transactionId:
+          details.provider_payment_id ||
+          details.provider_payment_request_id ||
+          details.payment_id,
+      });
+    } catch (error) {
+      // Do not roll back an already committed payment because SMTP failed.
+      console.error("[payment-confirmation] Email delivery failed.", {
+        paymentId: result.paymentId,
+        orderId: result.orderId,
+        error: error.message,
+      });
+    }
+  }
+
+  return result;
+};
 
 /**
  * =========================================================

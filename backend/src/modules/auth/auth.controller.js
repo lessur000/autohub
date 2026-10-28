@@ -57,3 +57,75 @@ export const getMe = async (req, res, next) => {
     return next(error);
   }
 };
+
+/**
+ * =========================================================
+ * FORGOT PASSWORD CONTROLLER
+ * =========================================================
+ */
+export const forgotPassword = async (req, res, next) => {
+  try {
+    const result = await authService.forgotPassword(req.body);
+
+    return apiResponse(res, {
+      statusCode: 200,
+      message: result.message,
+      data: null,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * =========================================================
+ * RESET PASSWORD CONTROLLER
+ * =========================================================
+ */
+export const resetPassword = async (req, res, next) => {
+  try {
+    const result = await authService.resetPassword(req.body);
+
+    return apiResponse(res, {
+      statusCode: 200,
+      message: result.message,
+      data: null,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * VERIFY EMAIL CONTROLLER
+ */
+export const verifyEmail = async (req, res, next) => {
+  try {
+    const result = await authService.verifyEmail(req.body);
+
+    return apiResponse(res, {
+      statusCode: 200,
+      message: result.message,
+      data: null,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/**
+ * RESEND EMAIL VERIFICATION CONTROLLER
+ */
+export const resendVerificationEmail = async (req, res, next) => {
+  try {
+    const result = await authService.resendVerificationEmail(req.body);
+
+    return apiResponse(res, {
+      statusCode: 200,
+      message: result.message,
+      data: null,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};

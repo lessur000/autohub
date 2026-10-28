@@ -3,6 +3,8 @@ import {
   httpError,
   parsePagination,
 } from "../../shared/utils/moduleHelpers.js";
+import * as userRepository from "../users/user.repository.js";
+import { sendOrderConfirmationEmail } from "../../integrations/email/order-confirmation.email.js";
 
 /**
  * =========================================================
@@ -51,7 +53,8 @@ export const createOrder = async (userId, payload) => {
     throw httpError(400, "Invalid shipping fee or discount amount.");
   }
 
-  return orderRepository.withTransaction(async (db) => {
+  // Create and commit the order before attempting email delivery.
+  const createdOrder = await orderRepository.withTransaction(async (db) => {
     const items = await orderRepository.findCheckoutItems(userId, db);
 
     if (items.length === 0) {
@@ -79,14 +82,14 @@ export const createOrder = async (userId, payload) => {
       0,
     );
 
+    if (discountAmount > subtotal + shippingFee) {
+      throw httpError(400, "Discount cannot exceed the order value.");
+    }
+
     const total = Number((subtotal + shippingFee - discountAmount).toFixed(2));
 
     if (total <= 0) {
       throw httpError(400, "Order total must be greater than zero.");
-    }
-
-    if (discountAmount > subtotal + shippingFee) {
-      throw httpError(400, "Discount cannot exceed the order value.");
     }
 
     const orderNumber = `AH-${Date.now()}-${Math.floor(
@@ -132,7 +135,10 @@ export const createOrder = async (userId, payload) => {
       order.id,
       "order.created",
       userId,
-      { orderNumber: order.order_number, totalAmount: total },
+      {
+        orderNumber: order.order_number,
+        totalAmount: total,
+      },
       db,
     );
 
@@ -154,6 +160,35 @@ export const createOrder = async (userId, payload) => {
       })),
     };
   });
+
+  // Send confirmation after the database transaction commits.
+  // Email failure must not cause the successfully created order
+  // to be reported as failed.
+  try {
+    const customer = await userRepository.findUserById(userId);
+
+    if (!customer?.email) {
+      throw new Error("Customer email is unavailable.");
+    }
+
+    await sendOrderConfirmationEmail({
+      email: customer.email,
+      customerName:
+        customer.full_name ||
+        createdOrder.shipping_address_snapshot?.recipientName ||
+        "Customer",
+      orderNumber: createdOrder.order_number,
+      total: createdOrder.total_amount,
+      currency: createdOrder.currency || "PHP",
+    });
+  } catch (error) {
+    console.error("[order-confirmation] Email delivery failed.", {
+      orderId: createdOrder.id,
+      error: error.message,
+    });
+  }
+
+  return createdOrder;
 };
 
 /**

@@ -1,99 +1,58 @@
-/**
- * =========================================================
- *  VALIDATE EMAIL FORMAT
- * =========================================================
- */
-const isValidEmail = (email) => {
-  if (typeof email !== "string" || email.length > 254) {
-    return false;
-  }
+import { z } from "zod";
+import {
+  emailSchema,
+  passwordSchema,
+} from "../../shared/validators/commonSchemas.js";
 
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-};
+const verificationTokenSchema = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/i, "A valid token is required.");
 
-/**
- * =========================================================
- *  VALIDATE REGISTER REQUEST BODY
- * =========================================================
- */
-export const validateRegisterBody = (body) => {
-  const errors = [];
+export const registerSchema = z.object({
+  fullName: z
+    .string()
+    .trim()
+    .min(2, "Full name must be at least 2 characters.")
+    .max(120, "Full name must not exceed 120 characters."),
 
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return [
-      {
-        field: "body",
-        message: "Request body must be an object.",
-      },
-    ];
-  }
+  email: emailSchema,
 
-  if (
-    typeof body.fullName !== "string" ||
-    body.fullName.trim().length < 2 ||
-    body.fullName.trim().length > 120
-  ) {
-    errors.push({
-      field: "fullName",
-      message: "Full name must be between 2 and 120 characters.",
-    });
-  }
+  password: z
+    .string()
+    .min(12, "Password must be at least 12 characters.")
+    .max(72, "Password must not exceed 72 characters."),
 
-  if (!isValidEmail(body.email)) {
-    errors.push({
-      field: "email",
-      message: "A valid email address is required.",
-    });
-  }
+  phone: z
+    .string()
+    .trim()
+    .min(7, "Phone number must be at least 7 characters.")
+    .max(32, "Phone number must not exceed 32 characters.")
+    .nullable()
+    .optional(),
+});
 
-  if (
-    typeof body.password !== "string" ||
-    body.password.length < 12 ||
-    body.password.length > 72
-  ) {
-    errors.push({
-      field: "password",
-      message: "Password must be between 12 and 72 characters.",
-    });
-  }
+export const loginSchema = z.object({
+  email: emailSchema,
 
-  return errors;
-};
+  password: z
+    .string()
+    .min(1, "Password is required.")
+    .max(72, "Password must not exceed 72 characters."),
+});
 
-/**
- * =========================================================
- *  VALIDATE LOGIN REQUEST BODY
- * =========================================================
- */
-export const validateLoginBody = (body) => {
-  const errors = [];
+export const forgotPasswordSchema = z.object({
+  email: emailSchema,
+});
 
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return [
-      {
-        field: "body",
-        message: "Request body must be an object.",
-      },
-    ];
-  }
+export const resetPasswordSchema = z.object({
+  token: verificationTokenSchema,
+  password: passwordSchema.max(72, "Password must not exceed 72 characters."),
+});
 
-  if (!isValidEmail(body.email)) {
-    errors.push({
-      field: "email",
-      message: "A valid email address is required.",
-    });
-  }
+export const verifyEmailSchema = z.object({
+  token: verificationTokenSchema,
+});
 
-  if (
-    typeof body.password !== "string" ||
-    body.password.length === 0 ||
-    body.password.length > 72
-  ) {
-    errors.push({
-      field: "password",
-      message: "A valid password is required.",
-    });
-  }
-
-  return errors;
-};
+export const resendVerificationSchema = z.object({
+  email: emailSchema,
+});
