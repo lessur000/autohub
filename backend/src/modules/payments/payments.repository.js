@@ -1,4 +1,3 @@
-
 import { pool } from "../../config/database.js";
 
 /**
@@ -39,10 +38,7 @@ export const findPaymentByReference = async (referenceId, db = pool) => {
 /**
  * FIND PAYMENT BY XENDIT PAYMENT REQUEST ID
  */
-export const findPaymentByProviderRequestId = async (
-  requestId,
-  db = pool,
-) => {
+export const findPaymentByProviderRequestId = async (requestId, db = pool) => {
   const result = await db.query(
     `
       SELECT *
@@ -278,9 +274,7 @@ export const applyPaymentWebhook = async (data) => {
     const nextStatus = data.status;
 
     // Do not downgrade a completed or refunded payment.
-    if (
-      ["paid", "refunded", "partially_refunded"].includes(currentStatus)
-    ) {
+    if (["paid", "refunded", "partially_refunded"].includes(currentStatus)) {
       await client.query("COMMIT");
 
       return {
@@ -326,11 +320,7 @@ export const applyPaymentWebhook = async (data) => {
           updated_at = NOW()
         WHERE id = $1
       `,
-      [
-        payment.id,
-        nextStatus,
-        data.providerPaymentId ?? null,
-      ],
+      [payment.id, nextStatus, data.providerPaymentId ?? null],
     );
 
     if (nextStatus === "paid") {
@@ -361,4 +351,40 @@ export const applyPaymentWebhook = async (data) => {
   } finally {
     client.release();
   }
+};
+
+/**
+ * GET PAYMENT CONFIRMATION DETAILS
+ *
+ * Fetches the committed payment, order, and customer details
+ * needed by the payment confirmation email.
+ */
+export const findPaymentConfirmationDetails = async (paymentId, db = pool) => {
+  const result = await db.query(
+    `
+      SELECT
+        p.id AS payment_id,
+        p.provider_payment_id,
+        p.provider_payment_request_id,
+        p.payment_method,
+        p.status AS payment_status,
+        p.amount,
+        p.currency,
+        o.id AS order_id,
+        o.order_number,
+        o.status AS order_status,
+        u.email,
+        u.full_name
+      FROM public.payments p
+      INNER JOIN public.orders o
+        ON o.id = p.order_id
+      INNER JOIN public.users u
+        ON u.id = o.user_id
+      WHERE p.id = $1
+      LIMIT 1
+    `,
+    [paymentId],
+  );
+
+  return result.rows[0] ?? null;
 };
